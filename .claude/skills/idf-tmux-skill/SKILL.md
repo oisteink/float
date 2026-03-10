@@ -14,36 +14,50 @@ Drive `idf.py flash` and `idf.py monitor` from Claude Code using tmux as a PTY w
 - ESP-IDF environment sourced (or idf.py on PATH)
 - Device connected and port accessible
 
+## Session naming
+
+Each device gets its own tmux session, named after the firmware target. The session's working directory is set to the firmware's source folder so all `idf.py` commands run in the right context.
+
+| Firmware | Session name | Working directory | Port |
+|----------|-------------|-------------------|------|
+| `float_core` | `core` | `float_core/` | (check CLAUDE.md / ask user) |
+| `float_node` | `node` | `float_node/` | (check CLAUDE.md / ask user) |
+
+When creating or referencing a session, always use the session name from this table. If a new firmware target is added, follow the same pattern.
+
 ## Workflow
 
 ### 1. Start or reuse tmux session
 
 ```bash
-# Check if session exists
-tmux has-session -t idf 2>/dev/null || tmux new-session -d -s idf -x 220 -y 50
+# For float_core
+tmux has-session -t core 2>/dev/null || tmux new-session -d -s core -c /home/ok/src/float/float_core -x 220 -y 50
+
+# For float_node
+tmux has-session -t node 2>/dev/null || tmux new-session -d -s node -c /home/ok/src/float/float_node -x 220 -y 50
 ```
 
-Always reuse the `idf` session if it exists. This avoids orphaned monitor processes.
+Always reuse a session if it exists. This avoids orphaned monitor processes.
 
 ### 2. Exit any running monitor first
 
 If monitor is already running from a previous invocation, exit cleanly before flashing:
 
 ```bash
-tmux send-keys -t idf C-t C-x
+tmux send-keys -t core C-t C-x
 sleep 2
 ```
 
 ### 3. Flash
 
 ```bash
-tmux send-keys -t idf "idf.py flash" Enter
+tmux send-keys -t node "idf.py -p /dev/ttyACM0 flash" Enter
 ```
 
 Poll until flash completes:
 
 ```bash
-python3 /path/to/scripts/poll_pane.py idf "Hard resetting\|Leaving\.\.\.\|error" 60
+python3 /path/to/scripts/poll_pane.py node "Hard resetting\|Leaving\.\.\.\|error" 60
 ```
 
 Check the returned output for errors before proceeding.
@@ -51,7 +65,7 @@ Check the returned output for errors before proceeding.
 ### 4. Start monitor
 
 ```bash
-tmux send-keys -t idf "idf.py monitor" Enter
+tmux send-keys -t node "idf.py -p /dev/ttyACM0 monitor" Enter
 sleep 2  # let monitor initialize
 ```
 
@@ -60,7 +74,7 @@ sleep 2  # let monitor initialize
 Use the helper script to capture a snapshot:
 
 ```bash
-python3 scripts/capture_pane.py idf 500
+python3 scripts/capture_pane.py node 500
 ```
 
 This returns the last N lines from the pane. Call it repeatedly to get rolling output. For continuous watching, use `poll_pane.py` with a pattern.
@@ -78,7 +92,7 @@ Analyze the captured output directly — look for:
 ### 7. Exit monitor when done
 
 ```bash
-tmux send-keys -t idf C-t C-x
+tmux send-keys -t node C-t C-x
 sleep 2
 ```
 
@@ -92,13 +106,16 @@ Inside `idf.py monitor`, `Ctrl-T` is the menu key. Useful sequences:
 |------|--------|
 | `Ctrl-T Ctrl-X` | **Exit monitor cleanly** (preferred over Ctrl-]) |
 | `Ctrl-T Ctrl-R` | **Reboot device** (software reset via RTS) |
+| `Ctrl-T Ctrl-F` | **Recompile, flash, and resume monitor** (build+flash+monitor in one shot) |
+| `Ctrl-T Ctrl-P` | **Reset into bootloader** (stops app, ready for reflash — useful to halt a crashing firmware) |
+| `Ctrl-T Ctrl-Y` | **Pause/resume output** (toggle — reduces terminal clutter when not actively reading) |
+| `Ctrl-T Ctrl-S` | **Toggle output logging** to file |
 | `Ctrl-T Ctrl-H` | Show help / all available shortcuts |
-| `Ctrl-T Ctrl-F` | Enter boot rom download mode |
 
 When sending these via tmux:
 ```bash
-tmux send-keys -t idf C-t C-x    # exit monitor
-tmux send-keys -t idf C-t C-r    # reboot device
+tmux send-keys -t node C-t C-x    # exit monitor
+tmux send-keys -t core C-t C-r    # reboot device
 ```
 
 ---
@@ -108,13 +125,13 @@ tmux send-keys -t idf C-t C-r    # reboot device
 If the firmware includes a console REPL (e.g. via `esp_console`), you can send commands directly through the monitor:
 
 ```bash
-# Send a command
-tmux send-keys -t idf "help" Enter
+# Send a command to the core's REPL
+tmux send-keys -t core "help" Enter
 sleep 1
-python3 scripts/capture_pane.py idf 30
+python3 scripts/capture_pane.py core 30
 
 # Send a reboot command via REPL
-tmux send-keys -t idf "restart" Enter
+tmux send-keys -t core "restart" Enter
 ```
 
 **Important**: Only send REPL commands when the monitor is running and the REPL prompt is visible. Check with `capture_pane.py` first.
@@ -132,6 +149,7 @@ See `scripts/` — read them before use if behavior needs adjusting.
 
 ## Do's
 
+- **Use the correct session name** (`core` or `node`) for the device you're targeting
 - **Always check the pane state** before sending commands — is it at a shell prompt, mid-flash, or in the monitor?
 - **Use `poll_pane.py`** to wait for flash/boot completion rather than arbitrary sleeps
 - **Use `idf.py build flash monitor`** as a single command when you want build+flash+monitor — idf.py handles the sequencing
@@ -148,6 +166,7 @@ See `scripts/` — read them before use if behavior needs adjusting.
 - **Don't rely on the first `poll_pane.py` match** after a rebuild — the pane buffer still contains output from previous boots. Poll for patterns unique to the NEW boot (e.g. a new ELF SHA256, or wait for the monitor startup line first)
 - **Don't use `Ctrl-]`** to exit monitor — `Ctrl-T Ctrl-X` is the proper exit sequence
 - **Don't assume `fullclean` gives a fresh config** — you must also `rm sdkconfig` for `sdkconfig.defaults` changes to take effect
+- **Don't mix up session names** — sending flash commands to the wrong session targets the wrong device
 
 ---
 
