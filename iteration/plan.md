@@ -1,222 +1,184 @@
-# Plan: Initial float_core Setup
+# Plan: float_node Firmware
 
 Builds on [spec.md](spec.md) and [research.md](research.md).
 
 ## Implementation Order
 
-Work proceeds bottom-up: data structures first, then services, then UI, then wiring.
+Sensor components first (dependency order), then the node firmware itself.
 
-### Step 1: Port float_data
+### Step 1: Port float_sensor
 
-Copy `zenith_data` → `float_components/float_data/`, rename all symbols.
-
-**Files to create:**
-- `float_components/float_data/CMakeLists.txt`
-- `float_components/float_data/include/float_data.h`
-- `float_components/float_data/float_data.c`
-
-**Changes:** Pure `zenith_` → `float_` rename across types, macros, functions.
-
-**Test scaffold:**
-- `float_components/float_data/test/CMakeLists.txt`
-- `float_components/float_data/test/test_float_data.c` — test datapoint allocation and size calculation.
-
-### Step 2: Port float_now
-
-Copy `zenith_now` → `float_components/float_now/`, rename all symbols.
+Copy `zenith_sensor` → `float_components/float_sensor/`, rename all symbols.
 
 **Files to create:**
-- `float_components/float_now/CMakeLists.txt`
-- `float_components/float_now/include/float_now.h`
-- `float_components/float_now/float_now_private.h`
-- `float_components/float_now/float_now.c`
+- `float_components/float_sensor/CMakeLists.txt`
+- `float_components/float_sensor/include/float_sensor.h`
+- `float_components/float_sensor/float_sensor.c`
+- `float_components/float_sensor/idf_component.yml`
 
-**Changes:**
-- `zenith_` → `float_` rename
-- `ZENITH_WIFI_CHANNEL` → `FLOAT_WIFI_CHANNEL`
-- NVS: no NVS usage in this component (confirm)
-- Keep `s_instance` pattern as-is (ESP-NOW callback limitation)
+**Changes:** `zenith_sensor` → `float_sensor`, `zenith_data` → `float_data` in REQUIRES.
 
-### Step 3: Port float_registry
+### Step 2: Port float_sensor_mock
 
-Copy `zenith_registry` → `float_components/float_registry/`, rename all symbols.
+Copy `zenith_sensor_mock` → `float_components/float_sensor_mock/`.
 
 **Files to create:**
-- `float_components/float_registry/CMakeLists.txt`
-- `float_components/float_registry/include/float_registry.h`
-- `float_components/float_registry/float_registry.c`
+- `float_components/float_sensor_mock/CMakeLists.txt`
+- `float_components/float_sensor_mock/include/float_sensor_mock.h`
+- `float_components/float_sensor_mock/float_sensor_mock.c`
 
-**Changes:**
-- `zenith_` → `float_` rename
-- NVS namespace: `"zenith_registry"` → `"float_registry"`
-- Event base: `ZENITH_REGISTRY_EVENTS` → `FLOAT_REGISTRY_EVENTS`
+**Changes:** `zenith_sensor` → `float_sensor` rename throughout.
 
-**Test scaffold:**
-- `float_components/float_registry/test/CMakeLists.txt`
-- `float_components/float_registry/test/test_float_registry.c` — test node storage and retrieval.
+### Step 3: Port float_sensor_bmp280
 
-### Step 4: Port float_blink
-
-Copy `zenith_blink` → `float_components/float_blink/`, rename all symbols.
+Copy `zenith_sensor_bmp280` → `float_components/float_sensor_bmp280/`.
 
 **Files to create:**
-- `float_components/float_blink/CMakeLists.txt`
-- `float_components/float_blink/include/float_blink.h`
-- `float_components/float_blink/include/float_blink_private.h`
-- `float_components/float_blink/float_blink.c`
+- `float_components/float_sensor_bmp280/CMakeLists.txt`
+- `float_components/float_sensor_bmp280/include/float_sensor_bmp280.h`
+- `float_components/float_sensor_bmp280/float_sensor_bmp280.c`
+- `float_components/float_sensor_bmp280/idf_component.yml`
 
-**Changes:**
-- `zenith_` → `float_` rename
-- Kconfig prefix: `ZENITH_HUB_BLINK_GPIO` → `FLOAT_CORE_BLINK_GPIO`
+**Changes:** `zenith_sensor` → `float_sensor` rename. BMP280 register defines and enums unchanged.
 
-### Step 5: Port float_node_list
+### Step 4: Port float_sensor_aht30
 
-Copy `zenith_node_list` → `float_components/float_node_list/`, rename all symbols.
+Copy `zenith_sensor_aht30` → `float_components/float_sensor_aht30/`.
 
 **Files to create:**
-- `float_components/float_node_list/CMakeLists.txt`
-- `float_components/float_node_list/include/float_node_list.h`
-- `float_components/float_node_list/float_node_list.c`
-- `float_components/float_node_list/idf_component.yml` (if needed for lvgl dependency)
+- `float_components/float_sensor_aht30/CMakeLists.txt`
+- `float_components/float_sensor_aht30/include/float_sensor_aht30.h`
+- `float_components/float_sensor_aht30/float_sensor_aht30.c`
 
-**Changes:**
-- `zenith_` → `float_` rename
-- Remove any `zenith_display` lock/unlock calls from the component itself — callers hold the lock
-- Dependency: `zenith_data` → `float_data`, `lvgl` stays
+**Changes:** `zenith_sensor` → `float_sensor` rename. AHT30 protocol constants unchanged.
 
-### Step 6: Wire float_core app_main
+### Step 5: Write float_node firmware
 
-Write the main application that ties everything together.
+Port `zenith_node` → `float_node/main/`, with the debug sleep mode addition.
 
-**Files to modify/create:**
-- `float_core/CMakeLists.txt` — add `EXTRA_COMPONENT_DIRS`
-- `float_core/main/CMakeLists.txt` — add REQUIRES for all components
-- `float_core/main/float_core.c` — full app_main implementation
-- `float_core/main/Kconfig.projbuild` — blink GPIO config
-- `float_core/sdkconfig.defaults` — target-specific defaults
+**Files to create/modify:**
+- `float_node/CMakeLists.txt` — add `EXTRA_COMPONENT_DIRS`
+- `float_node/main/CMakeLists.txt` — add REQUIRES with sensor selection logic
+- `float_node/main/float_node.h` — pin defines (GPIO8 LED, GPIO19/20 I2C)
+- `float_node/main/float_node.c` — full app_main with debug/production modes
+- `float_node/main/Kconfig.projbuild` — sensor choice + debug sleep toggle
+- `float_node/sdkconfig.defaults` — mock sensor, USB serial JTAG
 
-**app_main flow:**
+**Kconfig.projbuild:**
+```kconfig
+menu "Float Node"
+
+    choice FLOAT_NODE_SENSOR
+        prompt "Sensor type"
+        default FLOAT_NODE_SENSOR_MOCK
+
+        config FLOAT_NODE_SENSOR_AHT30
+            bool "AHT30 (temperature + humidity)"
+        config FLOAT_NODE_SENSOR_BMP280
+            bool "BMP280 (temperature + pressure)"
+        config FLOAT_NODE_SENSOR_MOCK
+            bool "Mock (fixed values, no hardware required)"
+    endchoice
+
+    config FLOAT_NODE_DEBUG_SLEEP
+        bool "Use vTaskDelay loop instead of deep sleep"
+        default y
+        help
+            Keeps USB-JTAG alive for continuous logging during development.
+
+    config FLOAT_NODE_SLEEP_DURATION_MS
+        int "Sleep duration between readings (ms)"
+        default 5000
+        depends on FLOAT_NODE_DEBUG_SLEEP
+
+endmenu
+```
+
+**app_main structure:**
 ```c
 void app_main(void)
 {
-    // 1. NVS
-    nvs_flash_init();  // with erase-on-error recovery
+    // Boot delay only in production mode (for reflash window)
+#if !CONFIG_FLOAT_NODE_DEBUG_SLEEP
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+        vTaskDelay(pdMS_TO_TICKS(30000));
+    }
+#endif
 
-    // 2. Display
-    msp3520_config_t display_cfg = MSP3520_CONFIG_DEFAULT();
-    msp3520_handle_t display;
-    msp3520_create(&display_cfg, &display);
+    // Init: I2C (if real sensor), sensor, blink, NVS, float_now
+    // Same init sequence as zenith_node
 
-    // 3. Registry
-    float_registry_handle_t registry;
-    float_registry_new(&registry);
-
-    // 4. Node list UI (under LVGL lock)
-    msp3520_lvgl_lock(display, 0);
-    lv_obj_t *screen = lv_display_get_screen_active(msp3520_get_display(display));
-    float_node_list_handle_t node_list;
-    float_node_list_new(screen, &node_list);
-    msp3520_lvgl_unlock(display);
-
-    // 5. Subscribe to registry events → update UI
-    //    Event handler takes display + node_list via context struct
-    esp_event_handler_register(FLOAT_REGISTRY_EVENTS, ESP_EVENT_ANY_ID,
-                               registry_event_handler, &app_ctx);
-
-    // 6. Blink
-    float_blink_config_t blink_cfg = { .gpio_pin = CONFIG_FLOAT_CORE_BLINK_GPIO };
-    float_blink_handle_t blink;
-    float_blink_new(&blink_cfg, &blink);
-
-    // 7. ESP-NOW
-    float_now_config_t now_cfg = { .rx_cb = hub_rx_callback };
-    float_now_handle_t now;
-    float_now_new(&now_cfg, &now);
-
-    // 8. Console REPL
-    esp_console_repl_t *repl = NULL;
-    esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
-    esp_console_dev_usb_serial_jtag_config_t hw_config =
-        ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-    esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl);
-    esp_console_register_help_command();
-    msp3520_register_console_commands(display);
-    esp_console_start_repl(repl);
+#if CONFIG_FLOAT_NODE_DEBUG_SLEEP
+    while (1) {
+        if (!saved_peer())
+            pair_with_core();
+        send_data(sensor);
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_FLOAT_NODE_SLEEP_DURATION_MS));
+    }
+#else
+    if (!saved_peer())
+        pair_with_core();
+    send_data(sensor);
+    esp_deep_sleep(30 * 1000 * 1000);
+#endif
 }
 ```
 
-**hub_rx_callback** — same logic as zenith_hub:
-- PAIRING → `float_registry_store_node_info()` + ACK + blink
-- DATA → `float_registry_store_datapoints()` + ACK + blink
-
-**registry_event_handler** — new for float (decoupled from callback):
-- NODE_ADDED → lock, `float_node_list_add_node()`, unlock
-- READING_UPDATED → lock, `float_node_list_update_sensors()`, unlock
-- NODE_REMOVED → lock, `float_node_list_remove_node()`, unlock
-
-**Context struct** for event handler:
-```c
-typedef struct {
-    msp3520_handle_t display;
-    float_node_list_handle_t node_list;
-    float_registry_handle_t registry;
-} app_context_t;
-```
-
-### Step 7: sdkconfig.defaults
-
+**sdkconfig.defaults:**
 ```
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+CONFIG_FLOAT_NODE_SENSOR_MOCK=y
 ```
 
-### Step 8: Build verification
+### Step 6: Build verification
 
 ```bash
-cd float_core
+cd float_node
 source ~/esp/v5.5.3/esp-idf/export.sh
-idf.py set-target esp32s3
+idf.py set-target esp32c6
 idf.py build
 ```
+
+### Step 7: Flash and test
+
+Flash to the C6 on `/dev/ttyACM0` (coordinate with user for reconnect timing). Verify:
+- Node pairs with core (visible on core's display)
+- Mock sensor data appears in core's node list
+- Debug loop cycles continuously with log output
+- LED blinks during pairing
 
 ## File Summary
 
 | Step | Path | Action |
 |------|------|--------|
-| 1 | `float_components/float_data/CMakeLists.txt` | Create |
-| 1 | `float_components/float_data/include/float_data.h` | Create (from zenith) |
-| 1 | `float_components/float_data/float_data.c` | Create (from zenith) |
-| 1 | `float_components/float_data/test/CMakeLists.txt` | Create |
-| 1 | `float_components/float_data/test/test_float_data.c` | Create |
-| 2 | `float_components/float_now/CMakeLists.txt` | Create |
-| 2 | `float_components/float_now/include/float_now.h` | Create (from zenith) |
-| 2 | `float_components/float_now/float_now_private.h` | Create (from zenith) |
-| 2 | `float_components/float_now/float_now.c` | Create (from zenith) |
-| 3 | `float_components/float_registry/CMakeLists.txt` | Create |
-| 3 | `float_components/float_registry/include/float_registry.h` | Create (from zenith) |
-| 3 | `float_components/float_registry/float_registry.c` | Create (from zenith) |
-| 3 | `float_components/float_registry/test/CMakeLists.txt` | Create |
-| 3 | `float_components/float_registry/test/test_float_registry.c` | Create |
-| 4 | `float_components/float_blink/CMakeLists.txt` | Create |
-| 4 | `float_components/float_blink/include/float_blink.h` | Create (from zenith) |
-| 4 | `float_components/float_blink/include/float_blink_private.h` | Create (from zenith) |
-| 4 | `float_components/float_blink/float_blink.c` | Create (from zenith) |
-| 5 | `float_components/float_node_list/CMakeLists.txt` | Create |
-| 5 | `float_components/float_node_list/include/float_node_list.h` | Create (from zenith) |
-| 5 | `float_components/float_node_list/float_node_list.c` | Create (from zenith) |
-| 6 | `float_core/CMakeLists.txt` | Modify (add EXTRA_COMPONENT_DIRS) |
-| 6 | `float_core/main/CMakeLists.txt` | Modify (add REQUIRES) |
-| 6 | `float_core/main/float_core.c` | Rewrite (full app_main) |
-| 6 | `float_core/main/Kconfig.projbuild` | Create |
-| 7 | `float_core/sdkconfig.defaults` | Create |
+| 1 | `float_components/float_sensor/CMakeLists.txt` | Create |
+| 1 | `float_components/float_sensor/include/float_sensor.h` | Create (from zenith) |
+| 1 | `float_components/float_sensor/float_sensor.c` | Create (from zenith) |
+| 1 | `float_components/float_sensor/idf_component.yml` | Create (from zenith) |
+| 2 | `float_components/float_sensor_mock/CMakeLists.txt` | Create |
+| 2 | `float_components/float_sensor_mock/include/float_sensor_mock.h` | Create (from zenith) |
+| 2 | `float_components/float_sensor_mock/float_sensor_mock.c` | Create (from zenith) |
+| 3 | `float_components/float_sensor_bmp280/CMakeLists.txt` | Create |
+| 3 | `float_components/float_sensor_bmp280/include/float_sensor_bmp280.h` | Create (from zenith) |
+| 3 | `float_components/float_sensor_bmp280/float_sensor_bmp280.c` | Create (from zenith) |
+| 3 | `float_components/float_sensor_bmp280/idf_component.yml` | Create (from zenith) |
+| 4 | `float_components/float_sensor_aht30/CMakeLists.txt` | Create |
+| 4 | `float_components/float_sensor_aht30/include/float_sensor_aht30.h` | Create (from zenith) |
+| 4 | `float_components/float_sensor_aht30/float_sensor_aht30.c` | Create (from zenith) |
+| 5 | `float_node/CMakeLists.txt` | Modify |
+| 5 | `float_node/main/CMakeLists.txt` | Modify |
+| 5 | `float_node/main/float_node.h` | Create |
+| 5 | `float_node/main/float_node.c` | Rewrite |
+| 5 | `float_node/main/Kconfig.projbuild` | Create |
+| 5 | `float_node/sdkconfig.defaults` | Create |
 
 ## Verification
 
-1. `idf.py build` succeeds for float_core targeting ESP32-S3
-2. All acceptance criteria from spec.md are addressed:
-   - ESP-NOW reception → float_now + hub_rx_callback
-   - Registry storage → float_registry
-   - Display UI → float_node_list + msp3520
-   - Touch/console → msp3520_register_console_commands + REPL
-   - LED feedback → float_blink
-   - NVS persistence → float_registry with `"float_registry"` namespace
+All acceptance criteria from spec.md are addressed:
+- ESP-NOW pairing → `float_now` + `pair_with_core()`
+- Sensor reading → `float_sensor` + mock driver
+- Data transmission → `float_now_send_data()` + ACK wait
+- Display on core → existing `float_core` registry + node list
+- Deep sleep → production mode path
+- Debug mode → `CONFIG_FLOAT_NODE_DEBUG_SLEEP` with `vTaskDelay` loop
+- LED feedback → `float_blink`
