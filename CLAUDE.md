@@ -167,5 +167,7 @@ float/
 
 ## References
 
-- Display/touch component: `esp-msp3520` repo at `~/src/esp-msp3520`
-- Zenith (predecessor project, for reference): `~/src/zenith`
+- **Hardware & wiring**: See [README.md](README.md) for board assignments and GPIO wiring tables
+- **Board docs**: `docs/references/boards/` — pinouts, constraints, variants
+- **Display/touch component**: `esp-msp3520` repo at `~/src/esp-msp3520`
+- **Zenith** (predecessor project, for reference): `~/src/zenith`
