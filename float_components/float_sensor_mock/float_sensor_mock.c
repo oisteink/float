@@ -1,23 +1,32 @@
 #include <stdlib.h>
 #include "esp_err.h"
+#include "esp_random.h"
 #include "float_sensor_mock.h"
 
 static esp_err_t mock_initialize(float_sensor_handle_t sensor) {
     return ESP_OK;
 }
 
+static float small_variation(float base, float range)
+{
+    // range = max deviation (+/-)
+    uint32_t r = esp_random() % 1000;           // 0..999
+    float offset = ((float)r / 999.0f) * 2 - 1; // -1..1
+    return base + offset * range;
+}
+
 static esp_err_t mock_read_temperature(float_sensor_handle_t sensor, float_sensor_datatype_t *out) {
-    *out = 20.0f;
+    *out = small_variation(20.0f, 5.0f);
     return ESP_OK;
 }
 
 static esp_err_t mock_read_humidity(float_sensor_handle_t sensor, float_sensor_datatype_t *out) {
-    *out = 50.0f;
+    *out = small_variation(50.0f, 25.0f);
     return ESP_OK;
 }
 
 static esp_err_t mock_read_pressure(float_sensor_handle_t sensor, float_sensor_datatype_t *out) {
-    *out = 101325.0f;
+    *out = small_variation(1013.25f, 15.0f);
     return ESP_OK;
 }
 
