@@ -11,7 +11,7 @@ A working `float_core` firmware that:
 1. Receives ESP-NOW pairing requests and data packets from sensor nodes
 2. Stores node info and sensor readings in a registry
 3. Displays node data on an ILI9488 touchscreen via LVGL
-4. Provides a console REPL with display/touch commands
+4. Provides a console REPL with extensible command registration (msp3520 commands first, ready for more components to add their own)
 5. Provides LED feedback for pairing and data events
 
 ## Components to Port
@@ -66,8 +66,8 @@ registry_event_handler (subscribed in app_main)
 5. Register registry event handler → updates node list UI
 6. `float_blink_new()` — LED feedback
 7. `float_now_new()` with `hub_rx_callback` — ESP-NOW receiver
-8. `msp3520_register_console_commands()` — REPL
-9. Console REPL start
+8. Start console REPL
+9. Register commands from components (msp3520, and future float_* components)
 
 ## Acceptance Criteria
 
@@ -76,14 +76,22 @@ registry_event_handler (subscribed in app_main)
 - [ ] Core receives ESP-NOW data packets and stores sensor readings
 - [ ] Node data (MAC, temperature, humidity, pressure) appears on ILI9488 display via `float_node_list`
 - [ ] Touch input works (calibration available via CLI `touch cal start`)
-- [ ] Console REPL available with touch/display commands from msp3520
+- [ ] Console REPL available, with msp3520 commands registered (pattern supports adding more component commands later)
 - [ ] LED blinks on pairing and data reception
 - [ ] Registry persists nodes across reboots (NVS)
 
-## Out of Scope
+## Testing
 
-- `float_node` firmware (separate iteration)
-- `float_zigbee` NCP firmware (separate iteration)
-- Zigbee bridge to Home Assistant (separate iteration)
+Research how ESP-IDF handles unit/integration testing. At minimum, scaffold the test infrastructure so future iterations can add tests incrementally. This is a research topic for Stage 2.
+
+## Out of Scope (Backlog Candidates)
+
+Items below are out of scope for this iteration. After completion, we'll review this list to build a prioritized backlog.
+
+- `float_node` firmware
+- `float_zigbee` NCP firmware
+- Zigbee bridge to Home Assistant
 - Any UI beyond the node list (charts, settings, etc.)
 - OTA updates
+- Component-level unit tests (scaffold only in this iteration)
+- Per-component REPL commands beyond msp3520
