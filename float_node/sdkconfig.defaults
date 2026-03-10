@@ -1,0 +1,5 @@
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_FLOAT_NODE_SENSOR_MOCK=y
+
+# Required by float_node_list (shared component, not used by node but compiled)
+CONFIG_LV_FONT_MONTSERRAT_24=y

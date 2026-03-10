@@ -1,0 +1,31 @@
+menu "Float Node"
+
+    choice FLOAT_NODE_SENSOR
+        prompt "Sensor type"
+        default FLOAT_NODE_SENSOR_MOCK
+        help
+            Select the sensor connected to the node.
+
+        config FLOAT_NODE_SENSOR_AHT30
+            bool "AHT30 (temperature + humidity)"
+        config FLOAT_NODE_SENSOR_BMP280
+            bool "BMP280 (temperature + pressure)"
+        config FLOAT_NODE_SENSOR_MOCK
+            bool "Mock (fixed values, no hardware required)"
+    endchoice
+
+    config FLOAT_NODE_DEBUG_SLEEP
+        bool "Use vTaskDelay loop instead of deep sleep"
+        default y
+        help
+            Keeps USB-JTAG alive for continuous logging during development.
+            When disabled, node uses esp_deep_sleep() for production operation.
+
+    config FLOAT_NODE_SLEEP_DURATION_MS
+        int "Sleep duration between readings (ms)"
+        default 5000
+        depends on FLOAT_NODE_DEBUG_SLEEP
+        help
+            Time to wait between read-send cycles in debug mode.
+
+endmenu

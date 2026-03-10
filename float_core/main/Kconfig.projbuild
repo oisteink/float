@@ -1,0 +1,9 @@
+menu "Float Core"
+
+    config FLOAT_CORE_BLINK_GPIO
+        int "WS2812 blink LED GPIO pin"
+        default 8
+        help
+            GPIO pin connected to the WS2812 LED used for status blink patterns.
+
+endmenu
