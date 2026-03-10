@@ -134,6 +134,7 @@ static void registry_event_handler(void *handler_arg, esp_event_base_t base,
             break;
 
         case FLOAT_REGISTRY_EVENT_NODE_UPDATED:
+            float_node_list_set_link_status(ctx->node_list, true);
             break;
 
         default:
@@ -233,6 +234,18 @@ void app_main(void)
     msp3520_lvgl_lock(app_ctx.display, 0);
     lv_obj_t *screen = lv_display_get_screen_active(msp3520_get_display(app_ctx.display));
     ESP_ERROR_CHECK(float_node_list_new(screen, &app_ctx.node_list));
+
+    // Populate UI with nodes already in registry (persisted via NVS)
+    size_t node_count = 0;
+    if (float_registry_get_node_count(app_ctx.registry, &node_count) == ESP_OK && node_count > 0) {
+        float_mac_address_t macs[node_count];
+        if (float_registry_get_all_node_macs(app_ctx.registry, macs, &node_count) == ESP_OK) {
+            for (size_t i = 0; i < node_count; i++) {
+                float_node_list_add_node(app_ctx.node_list, macs[i]);
+            }
+        }
+    }
+
     msp3520_lvgl_unlock(app_ctx.display);
 
     // 5. Registry events → UI updates
