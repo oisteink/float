@@ -1,198 +1,108 @@
-# Research: Initial float_core Setup
+# Research: float_node Firmware
 
 Builds on [spec.md](spec.md).
 
-## 1. Component Porting Details
+## Sensor Components to Port
 
-### Rename scope
+All four are trivial `zenith_` → `float_` renames (~522 lines total). No logic changes needed.
 
-All five components are a straightforward `zenith_` → `float_` rename across filenames, types, macros, and Kconfig prefixes. No structural changes needed beyond the node_list display lock swap.
+### float_sensor (base abstraction, ~117 lines)
 
-### zenith_now internals (→ float_now)
+Vtable-based interface — function pointers for `initialize`, `read_temperature`, `read_humidity`, `read_pressure`. The `read_data()` function aggregates whichever reads succeed into a `float_datapoints_t`.
 
-- Uses a **file-static singleton** `s_instance` because ESP-NOW callbacks don't support user data. This is internal — not visible to float_core's app layer.
-- WiFi setup is self-contained inside `zenith_now_new()`:
-  ```
-  esp_netif_init() → esp_event_loop_create_default() → esp_wifi_init()
-  → esp_wifi_set_mode(STA) → esp_wifi_start() → esp_wifi_set_channel(1)
-  ```
-- Internal architecture: ESP-NOW ISR callbacks → FreeRTOS queue → event handler task → user rx_cb/tx_cb.
-- Handle struct: config, event_queue, event_group (ACK signaling), task_handle.
+- **Depends on**: `driver`, `float_data`
+- **Has**: `idf_component.yml` (IDF ≥5.5.0)
 
-### zenith_registry events
+### float_sensor_mock (test fixture, ~33 lines)
 
-Registry defines `ZENITH_REGISTRY_EVENTS` event base and posts events internally when nodes are added/removed/updated. In zenith_hub, these events are **not subscribed to** — hub_rx_callback calls registry functions directly.
+Returns fixed values: 20.0°C, 50.0%, 101325 Pa. No I2C, no hardware.
 
-For float_core, we **will** subscribe to these events in app_main to update the LVGL UI. This is the pattern from CLAUDE.md:
+- **Depends on**: `float_sensor`
+- **No** `idf_component.yml`
 
-```
-registry_event_handler (subscribed in app_main)
-  → msp3520_lvgl_lock
-  → float_node_list_add_node / update_sensors
-  → msp3520_lvgl_unlock
-```
+### float_sensor_bmp280 (temp + pressure, ~222 lines)
 
-This is cleaner than zenith's approach and decouples the UI from the ESP-NOW callback.
+Bosch BMP280 I2C driver with forced-mode read, calibration coefficient loading, and Bosch compensation algorithm. Has a 1-second data cache to avoid redundant I2C reads.
 
-### zenith_node_list display lock swap
+- **Depends on**: `driver`, `float_sensor`, PRIV_REQUIRES `esp_timer`
+- **Has**: `idf_component.yml` (IDF ≥5.5.0)
+- BMP280 register defines and enums stay as-is (hardware constants)
 
-Only change beyond rename:
-- `zenith_display_lock(h)` → `msp3520_lvgl_lock(h, 0)` (adds timeout param, returns bool)
-- `zenith_display_unlock(h)` → `msp3520_lvgl_unlock(h)`
-- `zenith_display_get_lvgl_display(h)` → `msp3520_get_display(h)`
+### float_sensor_aht30 (temp + humidity, ~150 lines)
 
-The node_list component itself should **not** take the LVGL lock. Callers (the event handler in app_main) should hold the lock around node_list calls. This matches the zenith_ui pattern and keeps the component lock-agnostic.
+AHT30 I2C driver with 80ms measurement delay and busy-bit retry (up to 5x). Also has a 1-second cache.
 
-### zenith_blink
+- **Depends on**: `driver`, `float_sensor`, PRIV_REQUIRES `esp_timer`
+- **No** `idf_component.yml`
 
-Uses `led_indicator` component with WS2812 (NeoPixel) via RMT driver. GPIO pin configured via Kconfig. No display or registry dependency — standalone.
+## Debug Sleep Mode
 
-### zenith_data
+### RTC_DATA_ATTR in debug mode
 
-Pure data structures (sensor types, datapoints). No dependencies. Trivial rename.
+`RTC_DATA_ATTR` variables (`paired_core`, `failed_sends`) persist across deep sleep resets via RTC memory. In debug mode (no deep sleep), they're just regular statics in RAM — persist naturally across loop iterations. No special handling needed; same declarations work in both modes.
 
-## 2. Build System Wiring
+### Loop structure
 
-### CMakeLists.txt pattern from zenith_hub
-
-**Root CMakeLists.txt** (float_core/CMakeLists.txt):
-```cmake
-cmake_minimum_required(VERSION 3.16)
-
-set(EXTRA_COMPONENT_DIRS
-    "../float_components/"
-    "/home/ok/src/esp-msp3520/components/"
-)
-
-include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(float_core)
-```
-
-**Main component** (float_core/main/CMakeLists.txt):
-```cmake
-idf_component_register(
-    SRCS "float_core.c"
-    INCLUDE_DIRS "."
-    REQUIRES nvs_flash esp_event float_now float_registry float_blink float_node_list console msp3520
-)
-```
-
-### sdkconfig.defaults
-
-From zenith_hub, relevant for ESP32-S3:
-```
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
-```
-
-## 3. Console REPL — Extensible Command Registration
-
-### Two patterns available
-
-**Pattern A (REPL task)**: `esp_console_new_repl_uart/usb()` → spawns background REPL task. Simpler.
-
-**Pattern B (manual loop)**: Application owns the loop with `linenoise()` + `esp_console_run()`. More control.
-
-### Recommendation: Pattern A (REPL task)
-
-Simpler for our use case. Key points:
-
-- `esp_console_cmd_register()` is **thread-safe** — commands can be registered before or after REPL starts.
-- Each component provides a `float_xxx_register_console_commands(handle)` function.
-- Use `func_w_context` + `context` fields to pass component handles to command handlers (no globals).
-
-### Registration order in app_main
+`app_main()` can contain the loop directly — float_node has no REPL or background services that need `app_main` to return. Pattern:
 
 ```c
-// 1. Console init + REPL setup (but don't start yet)
-esp_console_repl_t *repl = NULL;
-esp_console_new_repl_usb_serial_jtag(..., &repl);
-
-// 2. Register built-in help
-esp_console_register_help_command();
-
-// 3. Each component registers its commands
-msp3520_register_console_commands(display);
-// future: float_registry_register_console_commands(registry);
-// future: float_now_register_console_commands(now);
-
-// 4. Start REPL
-esp_console_start_repl(repl);
+#if CONFIG_FLOAT_NODE_DEBUG_SLEEP
+    while (1) {
+        if (!saved_peer())
+            pair_with_core();
+        send_data(sensor);
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_FLOAT_NODE_SLEEP_DURATION_MS));
+    }
+#else
+    if (!saved_peer())
+        pair_with_core();
+    send_data(sensor);
+    esp_deep_sleep(CONFIG_FLOAT_NODE_SLEEP_DURATION_MS * 1000);
+#endif
 ```
 
-Commands can also be registered after start — useful if a component initializes later.
+### Boot delay removal
 
-## 4. ESP-IDF Testing
+The 30s/10s boot delays in zenith_node exist solely because `idf.py monitor` loses connection on deep sleep reset. In debug mode there's no reset, so no delays needed. In production mode we can keep a shorter delay for reflash convenience.
 
-### Available frameworks
+### float_now is safe for repeated calls
 
-| Framework | Where it runs | Best for |
-|-----------|--------------|----------|
-| Unity (component tests) | On target device | Data structures, component logic |
-| pytest-embedded | Host orchestrates target | CI/CD automation |
-| CMock + Linux target | Host machine | Pure logic without HW deps |
+Verified from source:
+- `float_now_add_peer()` is idempotent — checks `esp_now_is_peer_exist()` first
+- Send functions allocate/free per call, no state leaks
+- ACK event bits are cleared on wait (`pdTRUE` flag)
+- Background event task runs continuously
+- No teardown/reinit needed between iterations
 
-### Recommended approach for FLOAT
+### Kconfig pattern
 
-**Start with Unity component tests on-target.** Lowest setup cost, highest value for a small project.
+```kconfig
+config FLOAT_NODE_DEBUG_SLEEP
+    bool "Debug mode: replace deep sleep with vTaskDelay loop"
+    default y
+    help
+        Keeps USB-JTAG connection alive for continuous logging.
 
-#### Directory structure
-
-```
-float_components/
-├── float_data/
-│   ├── include/float_data.h
-│   ├── float_data.c
-│   ├── CMakeLists.txt
-│   └── test/
-│       ├── CMakeLists.txt      # REQUIRES unity float_data
-│       └── test_float_data.c
-├── float_registry/
-│   └── test/
-│       ├── CMakeLists.txt
-│       └── test_float_registry.c
+config FLOAT_NODE_SLEEP_DURATION_MS
+    int "Sleep duration between readings (ms)"
+    default 5000
+    depends on FLOAT_NODE_DEBUG_SLEEP
 ```
 
-#### Test file format
+For production deep sleep, can use the same Kconfig value (converted to µs) or a separate config. Using a shared `SLEEP_DURATION_MS` with unit conversion keeps it simple.
 
-```c
-#include "unity.h"
-#include "float_data.h"
+## Existing Shared Components
 
-TEST_CASE("datapoints allocation", "[data]")
-{
-    float_datapoints_t *dp = NULL;
-    esp_err_t ret = float_datapoints_new(3, &dp);
-    TEST_ASSERT_EQUAL(ESP_OK, ret);
-    TEST_ASSERT_NOT_NULL(dp);
-    // ...cleanup
-}
-```
+Already ported and available in `float_components/`:
+- `float_data` — sensor data structures
+- `float_now` — ESP-NOW send/receive/ACK
+- `float_blink` — LED feedback
 
-#### Running tests
+These are used by both `float_core` and `float_node`.
 
-```bash
-# From esp-idf's unit-test-app directory
-cd ~/esp/v5.5.3/esp-idf/tools/unit-test-app
-idf.py -T float_data -T float_registry build flash monitor
-# Interactive menu lets you pick tests by name, tag, or run all
-```
+## Build Considerations
 
-#### What to test in this iteration
-
-- `float_data`: datapoint allocation, size calculation — pure data, easy to test
-- `float_registry`: node storage, retrieval, ring buffer behavior — testable on device
-- `float_now`, `float_blink`, `float_node_list`: hardware-dependent, skip unit tests for now
-
-### Scaffolding for this iteration
-
-Add `test/` directories with CMakeLists.txt to `float_data` and `float_registry`. Include one or two basic test cases each to prove the pattern works. This establishes the convention for future components.
-
-## 5. Key Risks and Mitigations
-
-| Risk | Mitigation |
-|------|-----------|
-| `s_instance` singleton in float_now | Accept it — ESP-NOW API limitation. Document it. |
-| LVGL thread safety with event handler | Event handler acquires lock before calling node_list. Node_list itself stays lock-agnostic. |
-| msp3520 path hardcoded in CMakeLists | Use relative path `../../esp-msp3520/components/` or environment variable. Keep it simple for now. |
-| NVS namespace collision zenith↔float | Rename NVS namespace in float_registry from `"zenith_registry"` to `"float_registry"`. |
+- Target: ESP32-C6 (`idf.py set-target esp32c6`)
+- `EXTRA_COMPONENT_DIRS` must point to `../float_components/`
+- `sdkconfig.defaults`: need `CONFIG_FLOAT_NODE_SENSOR_MOCK=y`, USB serial JTAG console
+- No LVGL fonts needed (unlike zenith_node which pulled in zenith_ui_core transitively)

@@ -1,18 +1,20 @@
-# Spec: Initial float_core Setup
+# Spec: float_node Firmware
 
 ## Goal
 
-Port the zenith hub functionality into `float_core` on the ESP32-S3, replacing the UART bridge to a separate display MCU with direct display integration via the `msp3520` component.
+Port the `zenith_node` firmware to `float_node` on the ESP32-C6 Super Mini. The node wakes from deep sleep, reads sensors, sends data to `float_core` via ESP-NOW, and goes back to sleep.
 
 ## What We're Building
 
-A working `float_core` firmware that:
+A working `float_node` firmware that:
 
-1. Receives ESP-NOW pairing requests and data packets from sensor nodes
-2. Stores node info and sensor readings in a registry
-3. Displays node data on an ILI9488 touchscreen via LVGL
-4. Provides a console REPL with extensible command registration (msp3520 commands first, ready for more components to add their own)
-5. Provides LED feedback for pairing and data events
+1. Pairs with `float_core` via ESP-NOW broadcast (with retry + deep sleep fallback)
+2. Reads sensor data via the `float_sensor` interface (mock, BMP280, or AHT30)
+3. Sends data to the paired core via ESP-NOW
+4. Enters deep sleep between readings
+5. Persists paired core MAC across deep sleep via RTC memory
+6. Forgets peer after 5 consecutive failed sends (forces re-pairing)
+7. Provides LED feedback during pairing
 
 ## Components to Port
 
@@ -20,78 +22,63 @@ Copy from `zenith_components/` into `float_components/`, renaming `zenith_` → 
 
 | Component | Purpose | Port complexity |
 |-----------|---------|-----------------|
-| `zenith_data` → `float_data` | Shared data structures (sensor types, datapoints) | Trivial rename |
-| `zenith_now` → `float_now` | ESP-NOW reception, pairing, ACKs | Rename, note: uses file-static `s_instance` for ESP-NOW callbacks |
-| `zenith_registry` → `float_registry` | Node storage, ring buffers, NVS persistence, events | Rename |
-| `zenith_node_list` → `float_node_list` | LVGL UI cards showing node data | Rename + swap `zenith_display_lock/unlock` → `msp3520_lvgl_lock/unlock` |
-| `zenith_blink` → `float_blink` | WS2812 LED feedback patterns | Rename |
+| `zenith_sensor` → `float_sensor` | Sensor interface (vtable pattern) | Trivial rename |
+| `zenith_sensor_mock` → `float_sensor_mock` | Mock sensor for testing without hardware | Trivial rename |
+| `zenith_sensor_bmp280` → `float_sensor_bmp280` | BMP280 temp + pressure sensor | Trivial rename |
+| `zenith_sensor_aht30` → `float_sensor_aht30` | AHT30 temp + humidity sensor | Trivial rename |
 
-## External Dependency
-
-`msp3520` component from `~/src/esp-msp3520/components/msp3520` — provides:
-- ILI9488 display + XPT2046 touch + LVGL integration
-- `msp3520_create()` / `msp3520_destroy()`
-- `msp3520_lvgl_lock()` / `msp3520_lvgl_unlock()`
-- `msp3520_get_display()` — returns `lv_display_t*`
-- `msp3520_set_backlight()`
-- `msp3520_register_console_commands()` — touch/display REPL
-- `msp3520_start_calibration()` — 3-point touch calibration with NVS persistence
+Already ported (reused from float_core iteration): `float_data`, `float_now`, `float_blink`.
 
 ## Data Flow
 
 ```
-float_now (ESP-NOW RX)
-  → hub_rx_callback
-    → float_registry_store_node_info / store_datapoints
-      → esp_event_post(FLOAT_REGISTRY_EVENTS, ...)
-
-registry_event_handler (subscribed in app_main)
-  → msp3520_lvgl_lock
-  → float_node_list_add_node / update_sensors / remove_node
-  → msp3520_lvgl_unlock
+deep sleep → wake
+  → init sensor (I2C + driver)
+  → init blink, NVS, float_now
+  → paired? → no → pair_with_core() (broadcast, retry 5x, deep sleep on fail)
+  → send_data() (read sensor, ESP-NOW send, wait for ACK)
+  → deep sleep (30s debug / configurable)
 ```
 
-## What Gets Removed (vs zenith)
+## Hardware
 
-- `zenith_uart_bridge`, `zenith_uart_ui`, `zenith_uart_codec` — no longer needed
-- `zenith_display` — replaced by `msp3520`
-- `esp_lcd_ili9488` — bundled inside `msp3520`
+- **Board**: ESP32-C6 Super Mini
+- **LED**: GPIO 8 (onboard)
+- **I2C**: SDA=GPIO 19, SCL=GPIO 20 (for real sensors)
+- **Sensor selection**: Kconfig choice (mock/BMP280/AHT30)
 
-## app_main Initialization Order
+## Key Behaviors (from zenith_node)
 
-1. NVS flash init
-2. `msp3520_create()` — display + touch + LVGL
-3. `float_registry_new()` — node storage
-4. Create `float_node_list` UI (under LVGL lock)
-5. Register registry event handler → updates node list UI
-6. `float_blink_new()` — LED feedback
-7. `float_now_new()` with `hub_rx_callback` — ESP-NOW receiver
-8. Start console REPL
-9. Register commands from components (msp3520, and future float_* components)
+- **Boot delay**: 30s on fresh boot (non-timer wakeup) for reflash window, 10s on timer wakeup
+- **Pairing**: broadcast pairing packet, wait 5s for ACK, retry 5x then deep sleep 5min
+- **Data send**: read sensor, send to paired core, wait 2s for ACK
+- **Failed sends**: counter in RTC memory, 5 failures → forget peer → re-pair next wake
+- **RX callback**: only handles ACK packets (pairing ACK stores core MAC, data ACK clears fail counter)
 
 ## Acceptance Criteria
 
-- [ ] `idf.py build` succeeds for `float_core` targeting ESP32-S3
-- [ ] Core receives ESP-NOW pairing requests from nodes and stores them in registry
-- [ ] Core receives ESP-NOW data packets and stores sensor readings
-- [ ] Node data (MAC, temperature, humidity, pressure) appears on ILI9488 display via `float_node_list`
-- [ ] Touch input works (calibration available via CLI `touch cal start`)
-- [ ] Console REPL available, with msp3520 commands registered (pattern supports adding more component commands later)
-- [ ] LED blinks on pairing and data reception
-- [ ] Registry persists nodes across reboots (NVS)
+- [ ] `idf.py build` succeeds for `float_node` targeting ESP32-C6
+- [ ] Node pairs with `float_core` via ESP-NOW (visible on core's display)
+- [ ] Node sends mock sensor data that appears on core's node list UI
+- [ ] Node enters deep sleep after sending data
+- [ ] Node re-pairs after forgetting peer (5 failed sends or fresh boot)
+- [ ] LED blinks during pairing attempts
 
-## Testing
+## Debug Mode
 
-Research how ESP-IDF handles unit/integration testing. At minimum, scaffold the test infrastructure so future iterations can add tests incrementally. This is a research topic for Stage 2.
+Deep sleep resets the CPU, which drops the USB-JTAG connection. `idf.py monitor` is slow to reconnect and misses early boot logs, forcing large startup delays just to see output.
 
-## Out of Scope (Backlog Candidates)
+A Kconfig toggle (e.g. `CONFIG_FLOAT_NODE_DEBUG_SLEEP`) should replace `esp_deep_sleep()` with a `vTaskDelay` loop that repeats the read-send cycle without resetting. No reconnect issues, full log visibility, no artificial delays needed.
 
-Items below are out of scope for this iteration. After completion, we'll review this list to build a prioritized backlog.
+Requirements:
+- Kconfig toggle, default enabled for development
+- When enabled: wrap the pair-read-send logic in a loop with `vTaskDelay` instead of deep sleep
+- When disabled: original deep sleep behavior (production)
+- Remove the boot delay hacks (30s/10s) when in debug mode — they're only needed because of the reconnect problem
 
-- `float_node` firmware
-- `float_zigbee` NCP firmware
-- Zigbee bridge to Home Assistant
-- Any UI beyond the node list (charts, settings, etc.)
+## Out of Scope
+
+- Real sensor testing (BMP280/AHT30) — port the drivers but test with mock only
+- Battery/solar power management
 - OTA updates
-- Component-level unit tests (scaffold only in this iteration)
-- Per-component REPL commands beyond msp3520
+- Configurable sleep duration via Kconfig (keep hardcoded for now)
