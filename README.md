@@ -20,6 +20,20 @@ Node (buoy) → ESP-NOW → Core (S3) → UART → NCP (C6, Zigbee) → Home Ass
 | `float_node` | [ESP32-C6 Super Mini](docs/references/boards/esp32-c6-super-mini.md) | ESP32-C6 | Buoy sensor node, battery/solar, ESP-NOW TX |
 | `float_zigbee` | XIAO ESP32-C6 | ESP32-C6 | Zigbee NCP (UART to core) |
 
+## Data Flow (float_core)
+
+```
+float_now (ESP-NOW RX)
+  → hub_rx_callback
+    → float_registry_store_node_info / store_datapoints
+      → esp_event_post(FLOAT_REGISTRY_EVENTS, ...)
+
+registry_event_handler (subscribed in app_main)
+  → msp3520_lvgl_lock
+  → float_node_list_add_node / update_sensors / remove_node
+  → msp3520_lvgl_unlock
+```
+
 ## Wiring
 
 ### float_core (ESP32-S3-DevKitC-1 N32R16V)

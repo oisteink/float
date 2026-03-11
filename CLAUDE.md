@@ -23,31 +23,13 @@ Node (buoy) → ESP-NOW → Core (S3) → UART → NCP (C6, Zigbee) → Home Ass
                          LVGL UI
 ```
 
-## Environment
+## Tooling
 
-- **Framework**: ESP-IDF v5.5.3
-- **Setup**: `source ~/esp/v5.5.3/esp-idf/export.sh`
+Activate the Serena project (`/home/ok/src/float`) at conversation start for LSP access to C/C++, markdown, and YAML. Use symbolic tools (`find_symbol`, `get_symbols_overview`) for code navigation and `search_for_pattern` for cross-file search including documentation.
 
-## Build Commands
+## Build & Device Interaction
 
-Each firmware has its own tmux session with the ESP-IDF environment already sourced. Use tmux to run `idf.py` commands — avoids re-sourcing and lets builds run in the background.
-
-```bash
-# From float_core/, float_node/, or float_test/
-idf.py set-target <chip>
-idf.py build
-idf.py flash monitor
-idf.py build flash monitor   # combined
-
-# Generate compile_commands.json for clangd (run once after set-target)
-idf.py reconfigure
-ln -sf build/compile_commands.json compile_commands.json
-
-# Component tests (from float_test/)
-idf.py set-target <chip>     # any ESP32 variant
-idf.py -T all build           # discovers all component test/ directories
-idf.py flash monitor          # Unity interactive menu over serial
-```
+ESP-IDF v5.5.3. Each firmware has its own tmux session with ESP-IDF pre-sourced. See the `idf` skill for all `idf.py` operations: build, flash, monitor, REPL, testing, diagnostics, project scaffolding.
 
 ## Code Conventions
 
@@ -100,22 +82,3 @@ Execute the plan. Write code, run tests, verify nothing is broken.
 - Commits: imperative mood, explain the *why* not the *what*
 - Never push to master without a PR
 
-## Data Flow (float_core)
-
-```
-float_now (ESP-NOW RX)
-  → hub_rx_callback
-    → float_registry_store_node_info / store_datapoints
-      → esp_event_post(FLOAT_REGISTRY_EVENTS, ...)
-
-registry_event_handler (subscribed in app_main)
-  → msp3520_lvgl_lock
-  → float_node_list_add_node / update_sensors / remove_node
-  → msp3520_lvgl_unlock
-```
-
-## References
-
-- **Hardware & wiring**: See [README.md](README.md) for board assignments and GPIO wiring tables
-- **Board docs**: `docs/references/boards/` — pinouts, constraints, variants
-- **Display/touch component**: `esp-msp3520` repo at `~/src/esp-msp3520`
