@@ -39,8 +39,8 @@ registry_event_handler (subscribed in app_main)
 ### float_core (ESP32-S3-DevKitC-1 N32R16V)
 
 | GPIO | Function | Config |
-|------|----------|--------|
-| GPI48 | WS2812 LED (status blink) | Kconfig `FLOAT_CORE_BLINK_GPIO` |
+|-------|----------|--------|
+| GPIO48 | WS2812 LED (status blink) | Kconfig `FLOAT_CORE_BLINK_GPIO` |
 | Display + touch | ILI9488 + XPT2046 via SPI | `msp3520` component Kconfig |
 
 ### float_node (ESP32-C6 Super Mini)
