@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "path": "float_core", "name": "Core (ESP32-S3)" },
+    { "path": "float_node", "name": "Node (ESP32-C6)" },
+    { "path": "float_zigbee", "name": "Zigbee NCP (ESP32-C6)" },
+    { "path": "float_test", "name": "Tests (ESP32-S3)" },
+    { "path": ".", "name": "Root" }
+  ],
+  "settings": {}
+}
