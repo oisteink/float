@@ -44,6 +44,7 @@ float/
 ├── float_core/          # ESP32-S3: hub + display + zigbee host
 ├── float_node/          # ESP32-C6: buoy sensor node
 ├── float_zigbee/        # XIAO ESP32-C6: Zigbee NCP
+├── float_test/          # Unity test runner for component tests
 ├── float_components/    # Shared components
 ├── docs/                # Hardware docs, references
 └── iteration/           # Workflow artifacts
@@ -59,3 +60,16 @@ idf.py set-target <chip>
 idf.py build
 idf.py flash monitor
 ```
+
+## Testing
+
+Component tests use Unity and run on-device via `float_test/`.
+
+```bash
+cd float_test
+idf.py set-target <chip>    # any ESP32 variant
+idf.py -T all build         # discovers all component test/ directories
+idf.py flash monitor        # Unity menu over serial
+```
+
+Filter by tag in the serial console: `[data]`, `[registry]`, `[sensor]`, `[sensor_mock]`, `[now]`. Press Enter to run all.
