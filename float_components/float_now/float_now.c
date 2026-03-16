@@ -168,8 +168,10 @@ esp_err_t float_now_send_ack( float_now_handle_t handle, const uint8_t *peer_mac
     return ret;
 }
 
-esp_err_t float_now_send_pairing( float_now_handle_t handle, const uint8_t *peer_mac ) {
+esp_err_t float_now_send_pairing( float_now_handle_t handle, const uint8_t *peer_mac, const uint8_t *sensor_classes, uint8_t num_classes ) {
     ESP_LOGD( TAG, "float_now_send_pairing()" );
+
+    uint8_t clamped = num_classes > FLOAT_NOW_MAX_SENSOR_CLASSES ? FLOAT_NOW_MAX_SENSOR_CLASSES : num_classes;
 
     size_t payload_size = sizeof( float_now_payload_pairing_t );
     size_t packet_size = sizeof( float_now_packet_t ) + payload_size;
@@ -180,7 +182,12 @@ esp_err_t float_now_send_pairing( float_now_handle_t handle, const uint8_t *peer
     pairing->header.type = FLOAT_PACKET_PAIRING;
     pairing->header.payload_size = payload_size;
     pairing->header.version = FLOAT_NOW_VERSION;
-    (( float_now_payload_pairing_t * ) pairing->payload)->flags = 0;
+
+    float_now_payload_pairing_t *payload = ( float_now_payload_pairing_t * ) pairing->payload;
+    payload->flags = 0;
+    payload->num_sensor_classes = clamped;
+    if ( sensor_classes && clamped > 0 )
+        memcpy( payload->sensor_classes, sensor_classes, clamped );
 
     esp_err_t ret = float_now_send_packet( handle, peer_mac, pairing );
     free( pairing );

@@ -14,7 +14,9 @@ esp_err_t float_node_list_new( lv_obj_t *parent,
 esp_err_t float_node_list_delete( float_node_list_handle_t handle );
 
 esp_err_t float_node_list_add_node( float_node_list_handle_t handle,
-                                     const uint8_t mac[6] );
+                                     const uint8_t mac[6],
+                                     const uint8_t *sensor_classes,
+                                     uint8_t num_sensor_classes );
 
 esp_err_t float_node_list_remove_node( float_node_list_handle_t handle,
                                         const uint8_t mac[6] );

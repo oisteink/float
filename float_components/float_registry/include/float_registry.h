@@ -22,10 +22,15 @@ typedef struct float_reading_s {
     time_t timestamp;
 } float_reading_t;
 
+typedef struct float_registry_reading_s {
+    float_sensor_class_t sensor_class;
+    float_reading_t reading;
+} float_registry_reading_t;
+
 #define FLOAT_RING_CAPACITY 32
 
 typedef struct float_ringbuffer_s {
-    float_sensor_type_t type;
+    float_sensor_class_t sensor_class;
     float_reading_t entries[FLOAT_RING_CAPACITY];
     size_t head;
     size_t size;
@@ -33,6 +38,8 @@ typedef struct float_ringbuffer_s {
 
 typedef struct float_node_info_s {
     float_mac_address_t mac;
+    uint8_t num_sensor_classes;
+    uint8_t sensor_classes[FLOAT_MAX_SENSOR_CLASSES];
 } float_node_info_t;
 
 typedef struct float_registry_nvs_header_s {
@@ -70,10 +77,10 @@ esp_err_t float_registry_get_all_node_macs( float_registry_handle_t handle, floa
 // Reading management
 esp_err_t float_registry_store_datapoints( float_registry_handle_t handle, const float_mac_address_t mac, const float_datapoint_t *datapoints, size_t count );
 
-esp_err_t float_registry_get_latest_readings( float_registry_handle_t handle, const float_mac_address_t mac, float_reading_t *out_readings, size_t *inout_count );
-esp_err_t float_registry_get_history( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_history, size_t *inout_count );
-esp_err_t float_registry_get_max_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_max_reading );
-esp_err_t float_registry_get_min_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_min_reading );
+esp_err_t float_registry_get_latest_readings( float_registry_handle_t handle, const float_mac_address_t mac, float_registry_reading_t *out_readings, size_t *inout_count );
+esp_err_t float_registry_get_history( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t sensor_class, float_reading_t *out_history, size_t *inout_count );
+esp_err_t float_registry_get_max_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t sensor_class, float_reading_t *out_max_reading );
+esp_err_t float_registry_get_min_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t sensor_class, float_reading_t *out_min_reading );
 
 esp_err_t float_registry_full_contents_to_log( float_registry_handle_t handle );
 

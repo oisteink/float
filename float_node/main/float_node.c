@@ -39,16 +39,11 @@ bool saved_peer( void ){
     return ( memcmp( paired_core, empty_mac, ESP_NOW_ETH_ALEN ) != 0 );
 }
 
-void pair_with_core( void ){
+void pair_with_core( const uint8_t *sensor_classes, uint8_t num_classes ){
     uint8_t broadcast[ ESP_NOW_ETH_ALEN ] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
     ESP_ERROR_CHECK(
         float_now_add_peer( now_handle, broadcast )
     );
-
-    float_now_packet_t data_packet = {
-        .header.type = FLOAT_PACKET_PAIRING,
-        .header.version = FLOAT_NOW_VERSION,
-    };
 
     uint8_t peering_tries = 0;
     do {
@@ -60,7 +55,7 @@ void pair_with_core( void ){
         );
 
         ESP_ERROR_CHECK(
-            float_now_send_packet( now_handle, broadcast, &data_packet )
+            float_now_send_pairing( now_handle, broadcast, sensor_classes, num_classes )
         );
     } while ( float_now_wait_for_ack( now_handle, FLOAT_PACKET_PAIRING, 5000 ) != ESP_OK );
 
@@ -184,6 +179,14 @@ void app_main( void ){
     float_sensor_handle_t sensor = NULL;
     ESP_ERROR_CHECK(init_sensor(&sensor, i2c_bus));
 
+    float_sensor_class_t sensor_classes_enum[FLOAT_SENSOR_MAX_CHANNELS];
+    uint8_t sensor_classes[FLOAT_SENSOR_MAX_CHANNELS];
+    uint8_t num_sensor_classes = 0;
+    ESP_ERROR_CHECK(float_sensor_get_classes(sensor, sensor_classes_enum, &num_sensor_classes));
+    for ( uint8_t i = 0; i < num_sensor_classes; i++ )
+        sensor_classes[i] = ( uint8_t ) sensor_classes_enum[i];
+    ESP_LOGI(TAG, "Sensor has %d classes", num_sensor_classes);
+
     float_blink_config_t blink_config = { .gpio_pin = GPIO_NUM_8 };
     ESP_ERROR_CHECK( float_blink_new( &blink_config, &blink_handle ) );
 
@@ -206,7 +209,7 @@ void app_main( void ){
     ESP_LOGI( TAG, "Debug mode: looping with %d ms delay", CONFIG_FLOAT_NODE_SLEEP_DURATION_MS );
     while (1) {
         if ( !saved_peer() )
-            pair_with_core();
+            pair_with_core( sensor_classes, num_sensor_classes );
         send_data( sensor );
         vTaskDelay( pdMS_TO_TICKS( CONFIG_FLOAT_NODE_SLEEP_DURATION_MS ) );
     }

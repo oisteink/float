@@ -39,14 +39,14 @@ TEST_CASE("datapoints fields accessible after alloc", "[data]")
     float_datapoints_handle_t dp = NULL;
     float_datapoints_new(&dp, 2);
 
-    dp->datapoints[0].reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE;
+    dp->datapoints[0].reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE;
     dp->datapoints[0].value = 23.5f;
-    dp->datapoints[1].reading_type = FLOAT_SENSOR_TYPE_HUMIDITY;
+    dp->datapoints[1].reading_type = FLOAT_SENSOR_CLASS_AIR_HUMIDITY;
     dp->datapoints[1].value = 65.0f;
 
-    TEST_ASSERT_EQUAL(FLOAT_SENSOR_TYPE_TEMPERATURE, dp->datapoints[0].reading_type);
+    TEST_ASSERT_EQUAL(FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, dp->datapoints[0].reading_type);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 23.5f, dp->datapoints[0].value);
-    TEST_ASSERT_EQUAL(FLOAT_SENSOR_TYPE_HUMIDITY, dp->datapoints[1].reading_type);
+    TEST_ASSERT_EQUAL(FLOAT_SENSOR_CLASS_AIR_HUMIDITY, dp->datapoints[1].reading_type);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 65.0f, dp->datapoints[1].value);
 
     free(dp);

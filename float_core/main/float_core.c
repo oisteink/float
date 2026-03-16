@@ -47,11 +47,17 @@ static void hub_rx_callback(const uint8_t *mac, const float_now_packet_t *packet
     );
 
     switch (packet->header.type) {
-        case FLOAT_PACKET_PAIRING:
+        case FLOAT_PACKET_PAIRING: {
             ESP_LOGI(TAG, "Received pairing request from mac: " MACSTR, MAC2STR(mac));
 
-            float_node_info_t node_info;
+            float_now_payload_pairing_t *pairing = (float_now_payload_pairing_t *)packet->payload;
+            float_node_info_t node_info = {0};
             memcpy(&node_info.mac, mac, sizeof(float_mac_address_t));
+            node_info.num_sensor_classes = pairing->num_sensor_classes > FLOAT_MAX_SENSOR_CLASSES
+                ? FLOAT_MAX_SENSOR_CLASSES : pairing->num_sensor_classes;
+            memcpy(node_info.sensor_classes, pairing->sensor_classes, node_info.num_sensor_classes);
+
+            ESP_LOGI(TAG, "Node declares %d sensor classes", node_info.num_sensor_classes);
 
             ESP_ERROR_CHECK(
                 float_registry_store_node_info(app_ctx.registry, &node_info)
@@ -66,7 +72,7 @@ static void hub_rx_callback(const uint8_t *mac, const float_now_packet_t *packet
             );
 
             break;
-
+        }
         case FLOAT_PACKET_DATA:
             float_blink_start(app_ctx.blink, BLINK_DATA_RECEIVE);
             ESP_ERROR_CHECK(
@@ -108,20 +114,26 @@ static void registry_event_handler(void *handler_arg, esp_event_base_t base,
     }
 
     switch (id) {
-        case FLOAT_REGISTRY_EVENT_NODE_ADDED:
+        case FLOAT_REGISTRY_EVENT_NODE_ADDED: {
             ESP_LOGI(TAG, "Node added: " MACSTR, MAC2STR(mac));
-            float_node_list_add_node(ctx->node_list, mac);
+            float_node_info_t info;
+            if (float_registry_get_node_info(ctx->registry, mac, &info) == ESP_OK) {
+                float_node_list_add_node(ctx->node_list, mac, info.sensor_classes, info.num_sensor_classes);
+            } else {
+                float_node_list_add_node(ctx->node_list, mac, NULL, 0);
+            }
             float_node_list_set_link_status(ctx->node_list, true);
             break;
+        }
 
         case FLOAT_REGISTRY_EVENT_READING_UPDATED: {
-            float_reading_t readings[FLOAT_SENSOR_TYPE_MAX];
-            size_t count = FLOAT_SENSOR_TYPE_MAX;
+            float_registry_reading_t readings[FLOAT_MAX_SENSOR_CLASSES];
+            size_t count = FLOAT_MAX_SENSOR_CLASSES;
             if (float_registry_get_latest_readings(ctx->registry, mac, readings, &count) == ESP_OK) {
-                float_datapoint_t points[FLOAT_SENSOR_TYPE_MAX];
+                float_datapoint_t points[FLOAT_MAX_SENSOR_CLASSES];
                 for (size_t i = 0; i < count; i++) {
-                    points[i].reading_type = i;
-                    points[i].value = readings[i].value;
+                    points[i].reading_type = readings[i].sensor_class;
+                    points[i].value = readings[i].reading.value;
                 }
                 float_node_list_update_sensors(ctx->node_list, mac, points, count);
             }
@@ -241,7 +253,12 @@ void app_main(void)
         float_mac_address_t macs[node_count];
         if (float_registry_get_all_node_macs(app_ctx.registry, macs, &node_count) == ESP_OK) {
             for (size_t i = 0; i < node_count; i++) {
-                float_node_list_add_node(app_ctx.node_list, macs[i]);
+                float_node_info_t info;
+                if (float_registry_get_node_info(app_ctx.registry, macs[i], &info) == ESP_OK) {
+                    float_node_list_add_node(app_ctx.node_list, macs[i], info.sensor_classes, info.num_sensor_classes);
+                } else {
+                    float_node_list_add_node(app_ctx.node_list, macs[i], NULL, 0);
+                }
             }
         }
     }

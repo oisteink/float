@@ -208,8 +208,15 @@ esp_err_t float_sensor_new_bmp280( i2c_master_bus_handle_t i2c_bus, float_sensor
     );
 
     bmp280->base.initialize = float_sensor_bmp280_initialize;
-    bmp280->base.read_temperature = float_sensor_bmp280_read_temperature;
-    bmp280->base.read_pressure = float_sensor_bmp280_read_pressure;
+    bmp280->base.num_channels = 2;
+    bmp280->base.channels[0] = ( float_sensor_channel_t ){
+        .sensor_class = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE,
+        .read = float_sensor_bmp280_read_temperature
+    };
+    bmp280->base.channels[1] = ( float_sensor_channel_t ){
+        .sensor_class = FLOAT_SENSOR_CLASS_AIR_PRESSURE,
+        .read = float_sensor_bmp280_read_pressure
+    };
 
     *handle = &( bmp280->base );
     return ESP_OK;
