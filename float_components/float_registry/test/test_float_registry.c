@@ -99,16 +99,17 @@ TEST_CASE("registry store_datapoints creates readings", "[registry]")
     float_registry_store_node_info(reg, &info);
 
     float_datapoint_t dp = {
-        .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE,
+        .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE,
         .value = 21.5f
     };
     TEST_ASSERT_EQUAL(ESP_OK, float_registry_store_datapoints(reg, info.mac, &dp, 1));
 
-    float_reading_t readings[3];
+    float_registry_reading_t readings[3];
     size_t count = 3;
     TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_latest_readings(reg, info.mac, readings, &count));
     TEST_ASSERT_EQUAL(1, count);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.5f, readings[0].value);
+    TEST_ASSERT_EQUAL(FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, readings[0].sensor_class);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.5f, readings[0].reading.value);
 
     float_registry_delete(reg);
     teardown();
@@ -124,24 +125,26 @@ TEST_CASE("registry get_latest_readings multiple types", "[registry]")
     float_registry_store_node_info(reg, &info);
 
     float_datapoint_t dps[2] = {
-        { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = 19.0f },
-        { .reading_type = FLOAT_SENSOR_TYPE_HUMIDITY,    .value = 55.0f },
+        { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = 19.0f },
+        { .reading_type = FLOAT_SENSOR_CLASS_AIR_HUMIDITY,    .value = 55.0f },
     };
     float_registry_store_datapoints(reg, info.mac, dps, 2);
 
     // Store again with updated temperature
-    float_datapoint_t update = { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = 20.0f };
+    float_datapoint_t update = { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = 20.0f };
     float_registry_store_datapoints(reg, info.mac, &update, 1);
 
-    float_reading_t readings[3];
+    float_registry_reading_t readings[3];
     size_t count = 3;
     float_registry_get_latest_readings(reg, info.mac, readings, &count);
     TEST_ASSERT_EQUAL(2, count);
 
     // Latest temperature should be 20.0
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 20.0f, readings[0].value);
+    TEST_ASSERT_EQUAL(FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, readings[0].sensor_class);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 20.0f, readings[0].reading.value);
     // Humidity should still be 55.0
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.0f, readings[1].value);
+    TEST_ASSERT_EQUAL(FLOAT_SENSOR_CLASS_AIR_HUMIDITY, readings[1].sensor_class);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.0f, readings[1].reading.value);
 
     float_registry_delete(reg);
     teardown();
@@ -157,13 +160,13 @@ TEST_CASE("registry get_history returns oldest first", "[registry]")
     float_registry_store_node_info(reg, &info);
 
     for (int i = 0; i < 5; i++) {
-        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = (float)(10 + i) };
+        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = (float)(10 + i) };
         float_registry_store_datapoints(reg, info.mac, &dp, 1);
     }
 
     float_reading_t history[5];
     size_t count = 5;
-    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_history(reg, info.mac, FLOAT_SENSOR_TYPE_TEMPERATURE, history, &count));
+    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_history(reg, info.mac, FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, history, &count));
     TEST_ASSERT_EQUAL(5, count);
 
     for (int i = 0; i < 5; i++) {
@@ -185,13 +188,13 @@ TEST_CASE("registry ringbuffer wraps around", "[registry]")
 
     // Fill beyond capacity (32)
     for (int i = 0; i < 40; i++) {
-        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = (float)i };
+        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = (float)i };
         float_registry_store_datapoints(reg, info.mac, &dp, 1);
     }
 
     float_reading_t history[FLOAT_RING_CAPACITY];
     size_t count = FLOAT_RING_CAPACITY;
-    float_registry_get_history(reg, info.mac, FLOAT_SENSOR_TYPE_TEMPERATURE, history, &count);
+    float_registry_get_history(reg, info.mac, FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, history, &count);
     TEST_ASSERT_EQUAL(FLOAT_RING_CAPACITY, count);
 
     // Should contain values 8..39 (oldest 0..7 evicted)
@@ -214,12 +217,12 @@ TEST_CASE("registry get_max_last_24h", "[registry]")
 
     float values[] = {15.0f, 25.0f, 20.0f, 10.0f, 22.0f};
     for (int i = 0; i < 5; i++) {
-        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = values[i] };
+        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = values[i] };
         float_registry_store_datapoints(reg, info.mac, &dp, 1);
     }
 
     float_reading_t max_reading;
-    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_max_last_24h(reg, info.mac, FLOAT_SENSOR_TYPE_TEMPERATURE, &max_reading));
+    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_max_last_24h(reg, info.mac, FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, &max_reading));
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 25.0f, max_reading.value);
 
     float_registry_delete(reg);
@@ -237,12 +240,12 @@ TEST_CASE("registry get_min_last_24h", "[registry]")
 
     float values[] = {15.0f, 25.0f, 20.0f, 10.0f, 22.0f};
     for (int i = 0; i < 5; i++) {
-        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE, .value = values[i] };
+        float_datapoint_t dp = { .reading_type = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, .value = values[i] };
         float_registry_store_datapoints(reg, info.mac, &dp, 1);
     }
 
     float_reading_t min_reading;
-    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_min_last_24h(reg, info.mac, FLOAT_SENSOR_TYPE_TEMPERATURE, &min_reading));
+    TEST_ASSERT_EQUAL(ESP_OK, float_registry_get_min_last_24h(reg, info.mac, FLOAT_SENSOR_CLASS_AIR_TEMPERATURE, &min_reading));
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 10.0f, min_reading.value);
 
     float_registry_delete(reg);

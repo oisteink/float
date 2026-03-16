@@ -1,7 +1,7 @@
 #pragma once
 
 #define FLOAT_NOW_MAJOR_VERSION 1
-#define FLOAT_NOW_MINOR_VERSION 2
+#define FLOAT_NOW_MINOR_VERSION 3
 #define FLOAT_NOW_VERSION ((FLOAT_NOW_MAJOR_VERSION << 4) | FLOAT_NOW_MINOR_VERSION)
 
 #define FLOAT_WIFI_CHANNEL 1
@@ -28,8 +28,12 @@ typedef struct __attribute__((packed)) float_now_payload_ack_s {
     float_now_packet_type_t ack_for_type;
 } float_now_payload_ack_t;
 
+#define FLOAT_NOW_MAX_SENSOR_CLASSES 8
+
 typedef struct __attribute__((packed)) float_now_payload_pairing_s {
     uint8_t flags;
+    uint8_t num_sensor_classes;
+    uint8_t sensor_classes[FLOAT_NOW_MAX_SENSOR_CLASSES];
 } float_now_payload_pairing_t;
 
 typedef struct __attribute__((packed)) float_now_packet_header_s {
@@ -62,7 +66,7 @@ esp_err_t float_now_delete( float_now_handle_t handle );
 // Sending packets
 esp_err_t float_now_new_packet( float_now_handle_t handle, float_now_packet_type_t packet_type, uint8_t num_datapoints, float_now_packet_handle_t *out_packet );
 esp_err_t float_now_send_ack( float_now_handle_t handle, const uint8_t *peer_mac, float_now_packet_type_t ack_type );
-esp_err_t float_now_send_pairing( float_now_handle_t handle, const uint8_t *peer_mac );
+esp_err_t float_now_send_pairing( float_now_handle_t handle, const uint8_t *peer_mac, const uint8_t *sensor_classes, uint8_t num_classes );
 esp_err_t float_now_send_data( float_now_handle_t handle, const uint8_t *peer_mac, const float_now_payload_data_t *data_payload );
 esp_err_t float_now_send_packet( float_now_handle_t handle, const uint8_t *peer_mac, const float_now_packet_t *packet );
 

@@ -14,6 +14,26 @@ menu "Float Node"
             bool "Mock (fixed values, no hardware required)"
     endchoice
 
+    menu "Mock sensor classes"
+        visible if FLOAT_NODE_SENSOR_MOCK
+
+        config FLOAT_MOCK_AIR_TEMPERATURE
+            bool "Air temperature"
+            default y
+
+        config FLOAT_MOCK_AIR_HUMIDITY
+            bool "Air humidity"
+            default y
+
+        config FLOAT_MOCK_AIR_PRESSURE
+            bool "Air pressure"
+            default n
+
+        config FLOAT_MOCK_WATER_TEMPERATURE
+            bool "Water temperature"
+            default n
+    endmenu
+
     config FLOAT_NODE_DEBUG_SLEEP
         bool "Use vTaskDelay loop instead of deep sleep"
         default y

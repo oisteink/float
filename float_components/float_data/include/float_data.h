@@ -1,13 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "esp_err.h"
-
-typedef enum float_sensor_type_e {
-    FLOAT_SENSOR_TYPE_TEMPERATURE = 0,
-    FLOAT_SENSOR_TYPE_HUMIDITY,
-    FLOAT_SENSOR_TYPE_PRESSURE,
-    FLOAT_SENSOR_TYPE_MAX
-} float_sensor_type_t;
+#include "float_sensor_class.h"
 
 typedef float float_sensor_datatype_t;
 

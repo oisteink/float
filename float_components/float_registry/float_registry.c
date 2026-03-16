@@ -15,7 +15,7 @@ ESP_EVENT_DEFINE_BASE( FLOAT_REGISTRY_EVENTS );
 
 #define FLOAT_REGISTRY_NVS_NAMESPACE "float_registry"
 #define FLOAT_REGISTRY_NVS_KEY "nodes"
-#define FLOAT_REGISTRY_VERSION 1
+#define FLOAT_REGISTRY_VERSION 2
 #define FLOAT_REGISTRY_MAX_NODES 10
 
 typedef struct float_registry_node_s {
@@ -45,9 +45,9 @@ static int _index_of_mac( float_registry_handle_t handle, const float_mac_addres
     return -1;
 }
 
-static esp_err_t _get_ringbuffer( float_registry_node_t *node, float_sensor_type_t type, float_ringbuffer_t **ringbuffer ) {
+static esp_err_t _get_ringbuffer( float_registry_node_t *node, float_sensor_class_t type, float_ringbuffer_t **ringbuffer ) {
     for ( size_t i = 0; i < node->ring_count; ++i ) {
-        if ( node->rings[i].type == type ) {
+        if ( node->rings[i].sensor_class == type ) {
             *ringbuffer = &node->rings[i];
             return ESP_OK;
         }
@@ -64,7 +64,7 @@ static esp_err_t _get_ringbuffer( float_registry_node_t *node, float_sensor_type
     node->ring_count++;
 
     memset( new_ring, 0, sizeof( *new_ring ) );
-    new_ring->type = type;
+    new_ring->sensor_class = type;
 
     *ringbuffer = new_ring;
 
@@ -355,12 +355,12 @@ esp_err_t float_registry_store_datapoints( float_registry_handle_t handle, const
     for ( size_t i = 0; i < count; ++i ) {
         const float_datapoint_t *dp = &datapoints[i];
         ESP_GOTO_ON_FALSE(
-            dp->reading_type < FLOAT_SENSOR_TYPE_MAX,
+            dp->reading_type < FLOAT_SENSOR_CLASS_MAX,
             ESP_ERR_INVALID_ARG, end, TAG, "Invalid sensor type %d", dp->reading_type
         );
         float_ringbuffer_t *ring = NULL;
         ESP_GOTO_ON_ERROR(
-            _get_ringbuffer( node, (float_sensor_type_t)dp->reading_type, &ring ),
+            _get_ringbuffer( node, (float_sensor_class_t)dp->reading_type, &ring ),
             end, TAG, "Failed to get ringbuffer for sensor type %d", dp->reading_type
         );
         _ringbuffer_add_reading( ring, dp->value );
@@ -374,7 +374,7 @@ end_no_unlock:
     return ret;
 }
 
-esp_err_t float_registry_get_latest_readings( float_registry_handle_t handle, const float_mac_address_t mac, float_reading_t *out_readings, size_t *inout_count )
+esp_err_t float_registry_get_latest_readings( float_registry_handle_t handle, const float_mac_address_t mac, float_registry_reading_t *out_readings, size_t *inout_count )
 {
     ESP_RETURN_ON_FALSE( handle && mac && out_readings && inout_count, ESP_ERR_INVALID_ARG, TAG, "Invalid args to get_latest_readings" );
 
@@ -394,13 +394,14 @@ esp_err_t float_registry_get_latest_readings( float_registry_handle_t handle, co
 
     for ( size_t i = 0; i < to_copy; ++i ) {
         float_ringbuffer_t *ring = &node->rings[i];
+        out_readings[i].sensor_class = ring->sensor_class;
         if ( ring->size == 0 ) {
-            out_readings[i].timestamp = 0;
-            out_readings[i].value = 0;
+            out_readings[i].reading.timestamp = 0;
+            out_readings[i].reading.value = 0;
             continue;
         }
         size_t latest = ( ring->head + FLOAT_RING_CAPACITY - 1 ) % FLOAT_RING_CAPACITY;
-        out_readings[i] = ring->entries[latest];
+        out_readings[i].reading = ring->entries[latest];
     }
     *inout_count = to_copy;
 
@@ -410,7 +411,7 @@ end_no_unlock:
     return ret;
 }
 
-esp_err_t float_registry_get_history( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_history, size_t *inout_count )
+esp_err_t float_registry_get_history( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t type, float_reading_t *out_history, size_t *inout_count )
 {
     ESP_RETURN_ON_FALSE( handle && mac && out_history && inout_count, ESP_ERR_INVALID_ARG, TAG, "Invalid args to get_history" );
 
@@ -427,7 +428,7 @@ esp_err_t float_registry_get_history( float_registry_handle_t handle, const floa
     float_registry_node_t *node = &handle->nodes[index];
     float_ringbuffer_t *ring = NULL;
     for ( size_t i = 0; i < node->ring_count; ++i ) {
-        if ( node->rings[i].type == type ) {
+        if ( node->rings[i].sensor_class == type ) {
             ring = &node->rings[i];
             break;
         }
@@ -447,7 +448,7 @@ end_no_unlock:
     return ret;
 }
 
-esp_err_t float_registry_get_max_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_max_reading )
+esp_err_t float_registry_get_max_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t type, float_reading_t *out_max_reading )
 {
     ESP_RETURN_ON_FALSE( handle && mac && out_max_reading, ESP_ERR_INVALID_ARG, TAG, "Invalid args to get_max_last_24h" );
 
@@ -464,7 +465,7 @@ esp_err_t float_registry_get_max_last_24h( float_registry_handle_t handle, const
     float_registry_node_t *node = &handle->nodes[index];
     float_ringbuffer_t *ring = NULL;
     for ( size_t i = 0; i < node->ring_count; ++i ) {
-        if ( node->rings[i].type == type ) {
+        if ( node->rings[i].sensor_class == type ) {
             ring = &node->rings[i];
             break;
         }
@@ -494,7 +495,7 @@ end_no_unlock:
     return ret;
 }
 
-esp_err_t float_registry_get_min_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_type_t type, float_reading_t *out_min_reading )
+esp_err_t float_registry_get_min_last_24h( float_registry_handle_t handle, const float_mac_address_t mac, float_sensor_class_t type, float_reading_t *out_min_reading )
 {
     ESP_RETURN_ON_FALSE( handle && mac && out_min_reading, ESP_ERR_INVALID_ARG, TAG, "Invalid args to get_min_last_24h" );
 
@@ -511,7 +512,7 @@ esp_err_t float_registry_get_min_last_24h( float_registry_handle_t handle, const
     float_registry_node_t *node = &handle->nodes[index];
     float_ringbuffer_t *ring = NULL;
     for ( size_t i = 0; i < node->ring_count; ++i ) {
-        if ( node->rings[i].type == type ) {
+        if ( node->rings[i].sensor_class == type ) {
             ring = &node->rings[i];
             break;
         }
@@ -606,7 +607,7 @@ esp_err_t float_registry_full_contents_to_log( float_registry_handle_t handle ) 
 
         for ( size_t j = 0; j < node->ring_count; ++j ) {
             float_ringbuffer_t *ring = &node->rings[j];
-            printf( "   Sensor Type: %u — Readings: %u\n", (unsigned) ring->type, (unsigned) ring->size );
+            printf( "   Sensor Class: %u — Readings: %u\n", (unsigned) ring->sensor_class, (unsigned) ring->size );
 
             for ( size_t k = 0; k < ring->size; ++k ) {
                 float_reading_t *r = &ring->entries[k];

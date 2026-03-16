@@ -3,18 +3,23 @@
 #include "esp_log.h"
 #include "lvgl.h"
 #include "float_node_list.h"
+#include "float_sensor_class.h"
 
 static const char *TAG = "float_node_list";
 
 #define MAX_NODES 10
 
 typedef struct {
+    float_sensor_class_t sensor_class;
+    lv_obj_t *label;
+} sensor_label_t;
+
+typedef struct {
     uint8_t mac[6];
     lv_obj_t *card;
     lv_obj_t *lbl_title;
-    lv_obj_t *lbl_temp;
-    lv_obj_t *lbl_hum;
-    lv_obj_t *lbl_pres;
+    sensor_label_t sensors[FLOAT_MAX_SENSOR_CLASSES];
+    uint8_t num_sensors;
     bool in_use;
 } node_entry_t;
 
@@ -24,6 +29,28 @@ struct float_node_list_s {
     node_entry_t nodes[MAX_NODES];
     uint8_t count;
 };
+
+typedef struct {
+    float_sensor_class_t sensor_class;
+    const char *icon;
+    uint32_t color;
+} sensor_ui_style_t;
+
+static const sensor_ui_style_t s_ui_styles[] = {
+    { FLOAT_SENSOR_CLASS_AIR_TEMPERATURE,   LV_SYMBOL_HOME,     0x4fc3f7 },
+    { FLOAT_SENSOR_CLASS_WATER_TEMPERATURE, LV_SYMBOL_DOWNLOAD, 0x0288d1 },
+    { FLOAT_SENSOR_CLASS_AIR_HUMIDITY,      LV_SYMBOL_CHARGE,   0x81c784 },
+    { FLOAT_SENSOR_CLASS_AIR_PRESSURE,      LV_SYMBOL_LOOP,     0xffb74d },
+};
+
+static const sensor_ui_style_t *get_ui_style( float_sensor_class_t sensor_class )
+{
+    for ( size_t i = 0; i < sizeof( s_ui_styles ) / sizeof( s_ui_styles[0] ); i++ ) {
+        if ( s_ui_styles[i].sensor_class == sensor_class )
+            return &s_ui_styles[i];
+    }
+    return NULL;
+}
 
 static node_entry_t *find_entry( float_node_list_handle_t h, const uint8_t mac[6] )
 {
@@ -89,7 +116,9 @@ esp_err_t float_node_list_delete( float_node_list_handle_t handle )
 }
 
 esp_err_t float_node_list_add_node( float_node_list_handle_t handle,
-                                     const uint8_t mac[6] )
+                                     const uint8_t mac[6],
+                                     const uint8_t *sensor_classes,
+                                     uint8_t num_sensor_classes )
 {
     ESP_RETURN_ON_FALSE( handle && mac, ESP_ERR_INVALID_ARG, TAG, "NULL argument" );
 
@@ -122,27 +151,29 @@ esp_err_t float_node_list_add_node( float_node_list_handle_t handle,
     lv_obj_set_style_text_color( title, lv_color_hex( 0xe0e0e0 ), 0 );
     lv_obj_set_style_text_font( title, &lv_font_montserrat_24, 0 );
 
-    lv_obj_t *temp = lv_label_create( card );
-    lv_label_set_text( temp, LV_SYMBOL_HOME " --" );
-    lv_obj_set_style_text_color( temp, lv_color_hex( 0x4fc3f7 ), 0 );
-    lv_obj_set_style_text_font( temp, &lv_font_montserrat_24, 0 );
-
-    lv_obj_t *hum = lv_label_create( card );
-    lv_label_set_text( hum, LV_SYMBOL_CHARGE " --" );
-    lv_obj_set_style_text_color( hum, lv_color_hex( 0x81c784 ), 0 );
-    lv_obj_set_style_text_font( hum, &lv_font_montserrat_24, 0 );
-
-    lv_obj_t *pres = lv_label_create( card );
-    lv_label_set_text( pres, LV_SYMBOL_LOOP " --" );
-    lv_obj_set_style_text_color( pres, lv_color_hex( 0xffb74d ), 0 );
-    lv_obj_set_style_text_font( pres, &lv_font_montserrat_24, 0 );
-    lv_obj_add_flag( pres, LV_OBJ_FLAG_HIDDEN );
-
     entry->card = card;
     entry->lbl_title = title;
-    entry->lbl_temp = temp;
-    entry->lbl_hum = hum;
-    entry->lbl_pres = pres;
+    entry->num_sensors = 0;
+
+    uint8_t count = num_sensor_classes > FLOAT_MAX_SENSOR_CLASSES ? FLOAT_MAX_SENSOR_CLASSES : num_sensor_classes;
+    for ( uint8_t i = 0; i < count; i++ ) {
+        float_sensor_class_t sc = ( float_sensor_class_t ) sensor_classes[i];
+        const float_sensor_class_info_t *info = float_sensor_class_get_info( sc );
+        const sensor_ui_style_t *style = get_ui_style( sc );
+
+        const char *icon = style ? style->icon : LV_SYMBOL_DUMMY;
+        uint32_t color = style ? style->color : 0x888888;
+        const char *label = info ? info->label : "Unknown";
+
+        lv_obj_t *lbl = lv_label_create( card );
+        lv_label_set_text_fmt( lbl, "%s %s --", icon, label );
+        lv_obj_set_style_text_color( lbl, lv_color_hex( color ), 0 );
+        lv_obj_set_style_text_font( lbl, &lv_font_montserrat_24, 0 );
+
+        entry->sensors[entry->num_sensors].sensor_class = sc;
+        entry->sensors[entry->num_sensors].label = lbl;
+        entry->num_sensors++;
+    }
 
     return ESP_OK;
 }
@@ -178,21 +209,23 @@ esp_err_t float_node_list_update_sensors( float_node_list_handle_t handle,
     }
 
     for ( uint8_t i = 0; i < count; i++ ) {
-        switch ( points[i].reading_type ) {
-        case FLOAT_SENSOR_TYPE_TEMPERATURE:
-            lv_label_set_text_fmt( entry->lbl_temp, LV_SYMBOL_HOME " %.1f°C",
-                                   (double)points[i].value );
-            break;
-        case FLOAT_SENSOR_TYPE_HUMIDITY:
-            lv_label_set_text_fmt( entry->lbl_hum, LV_SYMBOL_CHARGE " %.0f%%",
-                                   (double)points[i].value );
-            break;
-        case FLOAT_SENSOR_TYPE_PRESSURE:
-            lv_label_set_text_fmt( entry->lbl_pres, LV_SYMBOL_LOOP " %.0f hPa",
-                                   (double)points[i].value );
-            lv_obj_clear_flag( entry->lbl_pres, LV_OBJ_FLAG_HIDDEN );
-            break;
-        default:
+        float_sensor_class_t sc = ( float_sensor_class_t ) points[i].reading_type;
+
+        for ( uint8_t j = 0; j < entry->num_sensors; j++ ) {
+            if ( entry->sensors[j].sensor_class != sc )
+                continue;
+
+            const float_sensor_class_info_t *info = float_sensor_class_get_info( sc );
+            const sensor_ui_style_t *style = get_ui_style( sc );
+            const char *icon = style ? style->icon : LV_SYMBOL_DUMMY;
+
+            if ( info ) {
+                char value_buf[16];
+                snprintf( value_buf, sizeof( value_buf ), info->format, (double)points[i].value );
+                lv_label_set_text_fmt( entry->sensors[j].label, "%s %s %s", icon, value_buf, info->unit );
+            } else {
+                lv_label_set_text_fmt( entry->sensors[j].label, "%s %.1f", icon, (double)points[i].value );
+            }
             break;
         }
     }

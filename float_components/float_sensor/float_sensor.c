@@ -28,13 +28,14 @@ esp_err_t float_sensor_read_data( float_sensor_handle_t sensor, float_datapoints
         TAG, "NULL pointer passed to float_sensor_read_data"
     );
 
-    uint8_t count = 0;
-    if ( sensor->read_humidity ) count++;
-    if ( sensor->read_pressure ) count++;
-    if ( sensor->read_temperature ) count++;
+    ESP_RETURN_ON_FALSE(
+        sensor->num_channels > 0,
+        ESP_ERR_INVALID_STATE,
+        TAG, "Sensor has no channels"
+    );
 
     float_datapoints_t *data = NULL;
-    float_datapoints_new( &data, count );
+    float_datapoints_new( &data, sensor->num_channels );
     ESP_RETURN_ON_FALSE(
         data,
         ESP_ERR_NO_MEM,
@@ -42,76 +43,36 @@ esp_err_t float_sensor_read_data( float_sensor_handle_t sensor, float_datapoints
     );
 
     uint8_t current_datapoint = 0;
-    if ( sensor->read_humidity )
-    {
-        data->datapoints[current_datapoint].reading_type = FLOAT_SENSOR_TYPE_HUMIDITY;
-        float_sensor_datatype_t humidity;
-        ret = sensor->read_humidity( sensor, &humidity );
+    for ( uint8_t i = 0; i < sensor->num_channels; i++ ) {
+        float_sensor_channel_t *ch = &sensor->channels[i];
+        if ( !ch->read )
+            continue;
+
+        float_sensor_datatype_t value;
+        ret = ch->read( sensor, &value );
         if ( ret == ESP_OK ) {
-            data->datapoints[current_datapoint].value = humidity;
+            data->datapoints[current_datapoint].reading_type = ch->sensor_class;
+            data->datapoints[current_datapoint].value = value;
             current_datapoint++;
         }
     }
 
-    if ( sensor->read_pressure )
-    {
-        data->datapoints[current_datapoint].reading_type = FLOAT_SENSOR_TYPE_PRESSURE;
-        float_sensor_datatype_t pressure;
-        ret = sensor->read_pressure( sensor, &pressure );
-        if ( ret == ESP_OK ) {
-            data->datapoints[current_datapoint].value = pressure;
-            current_datapoint++;
-        }
-    }
-
-    if ( sensor->read_temperature )
-    {
-        data->datapoints[current_datapoint].reading_type = FLOAT_SENSOR_TYPE_TEMPERATURE;
-        float_sensor_datatype_t temperature;
-        ret = sensor->read_temperature( sensor, &temperature );
-        if ( ret == ESP_OK ) {
-            data->datapoints[current_datapoint].value = temperature;
-            current_datapoint++;
-        }
-    }
-
+    data->num_datapoints = current_datapoint;
     *datapoints = data;
     return ret;
 }
 
-esp_err_t float_sensor_read_temperature( float_sensor_handle_t sensor, float_sensor_datatype_t *out_temp ) {
-    esp_err_t ret = ESP_OK;
+esp_err_t float_sensor_get_classes( float_sensor_handle_t sensor, float_sensor_class_t *out_classes, uint8_t *out_count ) {
     ESP_RETURN_ON_FALSE(
-        sensor && out_temp,
+        sensor && out_classes && out_count,
         ESP_ERR_INVALID_ARG,
-        TAG, "NULL pointer passed to read_temperature"
-    );
-    if ( sensor->read_temperature )
-        ret = sensor->read_temperature( sensor, out_temp );
-    return ret;
-}
-
-esp_err_t float_sensor_read_humidity( float_sensor_handle_t sensor, float_sensor_datatype_t *out_humidity ) {
-    esp_err_t ret = ESP_OK;
-    ESP_RETURN_ON_FALSE(
-        sensor && out_humidity,
-        ESP_ERR_INVALID_ARG,
-        TAG, "NULL pointer passed to read humidity"
+        TAG, "NULL pointer passed to get_classes"
     );
 
-    if ( sensor->read_humidity )
-        ret = sensor->read_humidity (sensor, out_humidity );
-    return ret;
-}
-
-esp_err_t float_sensor_read_pressure( float_sensor_handle_t sensor, float_sensor_datatype_t *out_pressure ) {
-    esp_err_t ret = ESP_OK;
-    ESP_RETURN_ON_FALSE(
-        sensor && out_pressure,
-        ESP_ERR_INVALID_ARG,
-        TAG, "NULL pointer passed to pressure"
-    );
-    if ( sensor->read_pressure )
-        ret = sensor->read_pressure( sensor, out_pressure );
-    return ret;
+    uint8_t count = 0;
+    for ( uint8_t i = 0; i < sensor->num_channels; i++ ) {
+        out_classes[count++] = sensor->channels[i].sensor_class;
+    }
+    *out_count = count;
+    return ESP_OK;
 }

@@ -128,8 +128,15 @@ esp_err_t float_sensor_new_aht30( i2c_master_bus_handle_t i2c_bus, float_sensor_
     );
 
     aht30->base.initialize = float_sensor_aht30_initialize;
-    aht30->base.read_humidity = float_sensor_aht30_read_humidity;
-    aht30->base.read_temperature = float_sensor_aht30_read_temperature;
+    aht30->base.num_channels = 2;
+    aht30->base.channels[0] = ( float_sensor_channel_t ){
+        .sensor_class = FLOAT_SENSOR_CLASS_AIR_TEMPERATURE,
+        .read = float_sensor_aht30_read_temperature
+    };
+    aht30->base.channels[1] = ( float_sensor_channel_t ){
+        .sensor_class = FLOAT_SENSOR_CLASS_AIR_HUMIDITY,
+        .read = float_sensor_aht30_read_humidity
+    };
 
     *handle = &(aht30->base);
     return ESP_OK;
